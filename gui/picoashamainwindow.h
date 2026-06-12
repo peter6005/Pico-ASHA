@@ -45,8 +45,7 @@ public:
     void setUSBInfo(asha::comm::USBInfo const& usb_info);
     void setUSBSettingsBtnState();
 
-    void setHciActionBtnStart(bool enabled);
-    void setHciActionBtnStop(bool enabled);
+    void setDiagnosticSessionActive(bool active);
 
     void onAdPacketReceived(asha::comm::AdvertisingPacket const& ad_pkt);
 
@@ -54,8 +53,8 @@ public slots:
     void onPairDialogAcceptedRejected();
 
 signals:
-    void hciLogPathChanged(QString const& path);
-    void hciLogActionBtnClicked();
+    void diagnosticSessionStartRequested();
+    void diagnosticSessionFinishRequested();
     void cmdRestartBtnClicked();
     void cmdConnAllowedBtnClicked(bool allowed);
     void cmdStreamingEnabledBtnClicked(bool enabled);
@@ -80,15 +79,14 @@ private:
     QSpinBox*    m_USBVolMaxSpin;
     QPushButton* m_USBSettingsBtn;
 
-    QPushButton* m_hciActionBtn;
-    QPushButton* m_hciPathBtn;
-    QLabel* m_hciPathLbl;
+    QPushButton* m_diagnosticActionBtn;
 
     PairDialog* m_currPairDlg;
 
     bool m_serialConnected;
     bool m_connectionsAllowed;
     bool m_streamingEnabled;
+    bool m_diagnosticSessionActive = false;
 
     asha::comm::USBInfo m_usbInfo;
     asha::comm::USBInfo fromUsbWidgets();

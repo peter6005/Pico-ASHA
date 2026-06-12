@@ -1,9 +1,10 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
-#include <QFileDialog>
+#include <QDesktopServices>
 #include <QFrame>
 #include <QMessageBox>
 #include <QStatusBar>
+#include <QUrl>
 #include <QVariant>
 
 #include "picoashamainwindow.h"
@@ -139,33 +140,45 @@ PicoAshaMainWindow::PicoAshaMainWindow(QWidget *parent)
     setCmdBtnsEnabled(false);
     setUSBWidgetsEnabled(false);
 
-    auto hciGroup = new QGroupBox("HCI Logging");
-    auto hciLayout = new QHBoxLayout;
-    m_hciActionBtn = new QPushButton;
-    m_hciActionBtn->setToolTip("Start or stop HCI logging.\n"
-                               "This can be useful to help diagnose pairing and connection issues,\n"
-                               "especially for hearing aids which have not previously been tested.\n"
-                               "Not required for general use.");
-    setHciActionBtnStart(false);
-    m_hciPathBtn = new QPushButton("Browse...");
-    m_hciPathLbl = new QLabel("Set HCI logging path");
-    hciLayout->addWidget(m_hciActionBtn, 0);
-    hciLayout->addWidget(m_hciPathBtn, 0);
-    hciLayout->addWidget(m_hciPathLbl, 1);
-    hciGroup->setLayout(hciLayout);
-    mainVBox->addWidget(hciGroup);
+    auto supportGroup = new QGroupBox("Help and Support");
+    auto supportLayout = new QHBoxLayout;
+    supportLayout->addStretch();
 
-    QObject::connect(m_hciPathBtn, &QPushButton::clicked, this, [=, this](bool clicked) {
-        auto filename = QFileDialog::getSaveFileName(this, "Create HCI Log File", "", "btsnoop (*.log)");
-        if (!filename.isEmpty()) {
-            m_hciPathLbl->setText(filename);
-            emit hciLogPathChanged(filename);
+    auto howToBtn = new QPushButton("How-to Guide");
+    howToBtn->setToolTip("Open the Pico-ASHA setup and usage guide (internet connection required).");
+    supportLayout->addWidget(howToBtn);
+
+    auto troubleshootingBtn = new QPushButton("Troubleshooting");
+    troubleshootingBtn->setToolTip("Open troubleshooting advice for common Pico-ASHA problems "
+                                   "(internet connection required).");
+    supportLayout->addWidget(troubleshootingBtn);
+
+    m_diagnosticActionBtn = new QPushButton;
+    supportLayout->addWidget(m_diagnosticActionBtn);
+
+    supportLayout->addStretch();
+    supportGroup->setLayout(supportLayout);
+    mainVBox->addWidget(supportGroup);
+
+    QObject::connect(troubleshootingBtn, &QPushButton::clicked, this, []() {
+        // TODO: create a dedicated troubleshooting page and update this URL
+        QDesktopServices::openUrl(QUrl("https://shermp.github.io/Pico-ASHA/faq/"));
+    });
+    QObject::connect(howToBtn, &QPushButton::clicked, this, []() {
+        QDesktopServices::openUrl(QUrl("https://shermp.github.io/Pico-ASHA/guide/"));
+    });
+
+    QObject::connect(m_diagnosticActionBtn, &QPushButton::clicked, this, [this]() {
+        if (m_diagnosticSessionActive) {
+            setDiagnosticSessionActive(false);
+            emit diagnosticSessionFinishRequested();
+        } else {
+            setDiagnosticSessionActive(true);
+            emit diagnosticSessionStartRequested();
         }
     });
 
-    QObject::connect(m_hciActionBtn, &QPushButton::clicked, this, [=, this](bool clicked) {
-        emit hciLogActionBtnClicked();
-    });
+    setDiagnosticSessionActive(false);
 
     m_logWidget = new QPlainTextEdit;
     m_logWidget->setLineWrapMode(QPlainTextEdit::NoWrap);
@@ -334,16 +347,17 @@ void PicoAshaMainWindow::setUSBSettingsBtnState()
     }
 }
 
-void PicoAshaMainWindow::setHciActionBtnStart(bool enabled)
+void PicoAshaMainWindow::setDiagnosticSessionActive(bool active)
 {
-    m_hciActionBtn->setText("HCI Start");
-    m_hciActionBtn->setEnabled(enabled);
-}
+    m_diagnosticSessionActive = active;
 
-void PicoAshaMainWindow::setHciActionBtnStop(bool enabled)
-{
-    m_hciActionBtn->setText("HCI Stop");
-    m_hciActionBtn->setEnabled(enabled);
+    if (active) {
+        m_diagnosticActionBtn->setText("Finish Diagnostic Session");
+        m_diagnosticActionBtn->setToolTip("Finish the diagnostic session and save the collected diagnostic files.");
+    } else {
+        m_diagnosticActionBtn->setText("Start Diagnostic Session...");
+        m_diagnosticActionBtn->setToolTip("Start a guided diagnostic session.");
+    }
 }
 
 void PicoAshaMainWindow::onAdPacketReceived(const asha::comm::AdvertisingPacket &ad_pkt)

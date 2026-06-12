@@ -3,7 +3,6 @@
 #include <QObject>
 #include <QMap>
 #include <QSerialPortInfo>
-#include <QUrl>
 #include <QtEndian>
 
 #include <nanocobs/cobs.h>
@@ -20,7 +19,6 @@ PicoAshaComm::PicoAshaComm(QObject *parent)
     : QObject{parent}, m_serial(this), connect_timer(this), m_hciLoggingEnabled(false)
 {
     m_ui = new PicoAshaMainWindow;
-    m_ui->setHciActionBtnStart(false);
 
     m_serial.setBaudRate(QSerialPort::Baud115200);
     m_serial.setDataBits(QSerialPort::Data8);
@@ -34,8 +32,6 @@ PicoAshaComm::PicoAshaComm(QObject *parent)
 
     QObject::connect(&intro_timer, &QTimer::timeout, this, &PicoAshaComm::onIntroTimer);
 
-    QObject::connect(m_ui, &PicoAshaMainWindow::hciLogPathChanged, this, &PicoAshaComm::onHciLogPathChanged);
-    QObject::connect(m_ui, &PicoAshaMainWindow::hciLogActionBtnClicked, this, &PicoAshaComm::onHciLogActionBtnClicked);
     QObject::connect(m_ui, &PicoAshaMainWindow::cmdRestartBtnClicked, this, &PicoAshaComm::onCmdRestartBtnClicked);
     QObject::connect(m_ui, &PicoAshaMainWindow::cmdConnAllowedBtnClicked, this, &PicoAshaComm::onCmdConnAllowedBtnClicked);
     QObject::connect(m_ui, &PicoAshaMainWindow::cmdStreamingEnabledBtnClicked, this, &PicoAshaComm::onCmdStreamingEnabledBtnClicked);
@@ -132,9 +128,6 @@ void PicoAshaComm::onSerialReadyRead()
 void PicoAshaComm::onHciLogPathChanged(const QString &path)
 {
     m_hciLoggingPath = path;
-    if (!m_hciLoggingEnabled) {
-        m_ui->setHciActionBtnStart(true);
-    }
 }
 
 void PicoAshaComm::onHciLogActionBtnClicked()
@@ -145,7 +138,6 @@ void PicoAshaComm::onHciLogActionBtnClicked()
             m_hciLogFile.close();
         }
         m_hciLoggingEnabled = false;
-        m_ui->setHciActionBtnStart(!m_hciLoggingPath.isEmpty());
         sendCommandPacket(
             {
                 .cmd = Command::HCIDump,
@@ -189,7 +181,6 @@ void PicoAshaComm::onHciLogActionBtnClicked()
         );
         if (res) {
             m_hciLoggingEnabled = true;
-            m_ui->setHciActionBtnStop(true);
         }
     }
 }
@@ -714,7 +705,6 @@ void PicoAshaComm::writeHciPacket(const char *data, size_t len)
 {
     if (!m_hciLoggingEnabled) {
         m_hciLoggingEnabled = true;
-        m_ui->setHciActionBtnStop(true);
     } else if (m_hciLoggingEnabled && m_hciLogFile.isOpen()) {
         m_hciLogFile.write(data, len);
     }

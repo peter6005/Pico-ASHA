@@ -8,7 +8,6 @@
 #include <QString>
 #include <QStringListModel>
 #include <QTimer>
-#include <QUrl>
 
 #include <asha_comms.hpp>
 #include "picoashamainwindow.h"
@@ -73,10 +72,6 @@ signals:
     void paFirmwareVersChanged();
 
     void remoteErrorChanged();
-
-    void hciLoggingPathChanged();
-
-    void hciLoggingEnabledChanged();
 
     void errMsgChanged();
 
