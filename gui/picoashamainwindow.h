@@ -25,6 +25,7 @@ public:
 
     QFrame* remoteFrame() const;
     void appendLog(QString const& logLine);
+    void clearLog();
 
     RemoteDevice* addRemote(uint16_t connID, const asha::comm::RemoteInfo* remote = nullptr);
     RemoteDevice* addRemote(asha::comm::RemoteInfo const& remote);
@@ -47,6 +48,7 @@ public:
     void setUSBSettingsBtnState();
 
     void setDiagnosticSessionActive(bool active);
+    void onDiagnosticSessionStartFailed(QString const& message);
 
     void onAdPacketReceived(asha::comm::AdvertisingPacket const& ad_pkt);
 
@@ -64,6 +66,8 @@ signals:
     void pairWithAddress(QByteArray const& addr, uint8_t addr_type);
 
 private:
+    void openDiagnosticSessionDialog();
+
     QWidget* m_mainWidget;
     QFrame* m_remoteFrame;
     QPlainTextEdit* m_logWidget;
@@ -88,6 +92,7 @@ private:
     bool m_connectionsAllowed;
     bool m_streamingEnabled;
     bool m_diagnosticSessionActive = false;
+    DiagnosticSettings m_pendingDiagnosticSettings;
 
     asha::comm::USBInfo m_usbInfo;
     asha::comm::USBInfo fromUsbWidgets();

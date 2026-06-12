@@ -6,7 +6,7 @@
 struct DiagnosticSettings
 {
     bool restartPicoAsha = true;
-    bool deleteBonds = false;
+    bool deleteBonds = true;
 
     bool bluetoothAddresses = true;
     bool deviceNames = true;

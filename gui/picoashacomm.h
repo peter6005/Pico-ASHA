@@ -10,6 +10,7 @@
 #include <QTimer>
 
 #include <asha_comms.hpp>
+#include "diagnosticsettings.h"
 #include "picoashamainwindow.h"
 
 class PicoAshaComm : public QObject
@@ -44,6 +45,10 @@ private:
     bool sendCommandPacket(asha::comm::CmdPacket const& cmd_pkt);
 
     void writeHciPacket(const char* data, size_t len);
+    bool startHciLogging(QString const& path);
+    bool stopHciLogging();
+    bool prepareDiagnosticOutput(QString const& path);
+    void failDiagnosticStart(QString const& message);
 
     QSerialPort m_serial;
     QByteArray m_currPacket;
@@ -61,9 +66,10 @@ private:
 
     QString m_remoteError;
 
-    QString m_hciLoggingPath;
-
     bool m_hciLoggingEnabled;
+
+    bool m_diagnosticRecordingActive = false;
+    DiagnosticSettings m_diagnosticSettings;
 
     QString m_errMsg;
 
@@ -74,14 +80,15 @@ signals:
     void remoteErrorChanged();
 
     void errMsgChanged();
+    void diagnosticSessionStartFailed(QString const& message);
 
 public slots:
     void onConnectTimer();
     void onIntroTimer();
     void onSerialError(QSerialPort::SerialPortError error);
     void onSerialReadyRead();
-    void onHciLogPathChanged(QString const& path);
-    void onHciLogActionBtnClicked();
+    void onDiagnosticSessionStartRequested(DiagnosticSettings const& settings);
+    void onDiagnosticSessionFinishRequested();
     void onCmdRestartBtnClicked();
     void onCmdConnAllowedBtnClicked(bool allowed);
     void onCmdStreamingEnabledBtnClicked(bool enabled);

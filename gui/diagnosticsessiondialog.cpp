@@ -31,7 +31,10 @@ protected:
 };
 } // namespace
 
-DiagnosticSessionDialog::DiagnosticSessionDialog(QWidget *parent) : QDialog(parent)
+DiagnosticSessionDialog::DiagnosticSessionDialog(
+    const DiagnosticSettings &initialSettings,
+    QWidget *parent)
+    : QDialog(parent)
 {
     setWindowTitle("Start Diagnostic Session");
     setMinimumWidth(560);
@@ -111,14 +114,10 @@ DiagnosticSessionDialog::DiagnosticSessionDialog(QWidget *parent) : QDialog(pare
             "Operating system information"
         });
 
-    m_bluetoothGroup.groupCheckBox->setChecked(true);
-    m_computerGroup.groupCheckBox->setChecked(true);
-
     auto guiLogFrame = new QFrame;
     guiLogFrame->setFrameShape(QFrame::StyledPanel);
     auto guiLogLayout = new QVBoxLayout(guiLogFrame);
     m_guiLogCheckBox = new QCheckBox("GUI log");
-    m_guiLogCheckBox->setChecked(true);
     m_guiLogCheckBox->setToolTip("Include the log shown in the main Pico-ASHA window.");
     guiLogLayout->addWidget(m_guiLogCheckBox);
     auto guiLogDescription = new QLabel("Includes the messages shown in the main window.");
@@ -130,7 +129,6 @@ DiagnosticSessionDialog::DiagnosticSessionDialog(QWidget *parent) : QDialog(pare
     hciFrame->setFrameShape(QFrame::StyledPanel);
     auto hciLayout = new QVBoxLayout(hciFrame);
     m_rawHciCheckBox = new QCheckBox("Raw HCI traffic");
-    m_rawHciCheckBox->setChecked(true);
     m_rawHciCheckBox->setToolTip("Include a detailed record of Bluetooth communication.");
     hciLayout->addWidget(m_rawHciCheckBox);
 
@@ -147,7 +145,6 @@ DiagnosticSessionDialog::DiagnosticSessionDialog(QWidget *parent) : QDialog(pare
     contentLayout->addWidget(actionsLabel);
 
     m_restartCheckBox = new QCheckBox("Restart Pico-ASHA (recommended)");
-    m_restartCheckBox->setChecked(true);
     m_restartCheckBox->setToolTip("Restart Pico-ASHA before diagnostic recording starts.");
     contentLayout->addWidget(m_restartCheckBox);
 
@@ -174,6 +171,28 @@ DiagnosticSessionDialog::DiagnosticSessionDialog(QWidget *parent) : QDialog(pare
     connect(m_outputDirectoryEdit, &QLineEdit::textChanged, this, &DiagnosticSessionDialog::updateStartButton);
     connect(m_buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(m_buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
+
+    m_restartCheckBox->setChecked(initialSettings.restartPicoAsha);
+    m_deleteBondsCheckBox->setChecked(initialSettings.deleteBonds);
+
+    m_bluetoothGroup.fields.at(0)->setChecked(initialSettings.bluetoothAddresses);
+    m_bluetoothGroup.fields.at(1)->setChecked(initialSettings.deviceNames);
+    m_bluetoothGroup.fields.at(2)->setChecked(initialSettings.manufacturerNames);
+    m_bluetoothGroup.fields.at(3)->setChecked(initialSettings.modelNames);
+    m_bluetoothGroup.fields.at(4)->setChecked(initialSettings.deviceVersions);
+
+    m_computerGroup.fields.at(0)->setChecked(initialSettings.serialPortNames);
+    m_computerGroup.fields.at(1)->setChecked(initialSettings.serialNumbers);
+    m_computerGroup.fields.at(2)->setChecked(initialSettings.systemLocations);
+    m_computerGroup.fields.at(3)->setChecked(initialSettings.applicationAndOutputPaths);
+    m_computerGroup.fields.at(4)->setChecked(initialSettings.operatingSystemInformation);
+
+    m_guiLogCheckBox->setChecked(initialSettings.guiLog);
+    m_rawHciCheckBox->setChecked(initialSettings.rawHciTraffic);
+    m_problemDescriptionEdit->setPlainText(initialSettings.problemDescription);
+    if (!initialSettings.outputDirectory.isEmpty()) {
+        m_outputDirectoryEdit->setText(initialSettings.outputDirectory);
+    }
 
     updateStartButton();
 }

@@ -20,7 +20,8 @@ class DiagnosticSessionDialog : public QDialog
     Q_OBJECT
 
 public:
-    explicit DiagnosticSessionDialog(QWidget *parent = nullptr);
+    explicit DiagnosticSessionDialog(DiagnosticSettings const& initialSettings = {},
+                                     QWidget *parent = nullptr);
 
     DiagnosticSettings settings() const;
 

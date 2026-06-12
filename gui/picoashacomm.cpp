@@ -1,8 +1,12 @@
 #include <QDateTime>
 #include <QDebug>
+#include <QDir>
+#include <QFileInfo>
+#include <QMessageBox>
 #include <QObject>
 #include <QMap>
 #include <QSerialPortInfo>
+#include <QTemporaryFile>
 #include <QtEndian>
 
 #include <nanocobs/cobs.h>
@@ -16,7 +20,11 @@ constexpr int timer_interval = 1000;
 QMap<QByteArray, RemoteDevice::CachedProps> cached_remote_props;
 
 PicoAshaComm::PicoAshaComm(QObject *parent)
-    : QObject{parent}, m_serial(this), connect_timer(this), m_hciLoggingEnabled(false)
+    : QObject{parent},
+      m_serial(this),
+      connect_timer(this),
+      m_serialConnected(false),
+      m_hciLoggingEnabled(false)
 {
     m_ui = new PicoAshaMainWindow;
 
@@ -38,6 +46,13 @@ PicoAshaComm::PicoAshaComm(QObject *parent)
     QObject::connect(m_ui, &PicoAshaMainWindow::cmdRemoveBondBtnClicked, this, &PicoAshaComm::onCmdRemoveBondBtnClicked);
     QObject::connect(m_ui, &PicoAshaMainWindow::usbSettingsBtnClicked, this, &PicoAshaComm::onUsbSettingsBtnClicked);
     QObject::connect(m_ui, &PicoAshaMainWindow::pairWithAddress, this, &PicoAshaComm::onPairWithAddress);
+    QObject::connect(m_ui, &PicoAshaMainWindow::diagnosticSessionStartRequested,
+                     this, &PicoAshaComm::onDiagnosticSessionStartRequested);
+    QObject::connect(m_ui, &PicoAshaMainWindow::diagnosticSessionFinishRequested,
+                     this, &PicoAshaComm::onDiagnosticSessionFinishRequested);
+    QObject::connect(this, &PicoAshaComm::diagnosticSessionStartFailed,
+                     m_ui, &PicoAshaMainWindow::onDiagnosticSessionStartFailed,
+                     Qt::QueuedConnection);
 
     connect_timer.start(timer_interval);
 
@@ -45,6 +60,9 @@ PicoAshaComm::PicoAshaComm(QObject *parent)
 
 PicoAshaComm::~PicoAshaComm()
 {
+    if (m_hciLoggingEnabled) {
+        stopHciLogging();
+    }
     closeSerial();
     delete m_ui;
 }
@@ -125,64 +143,223 @@ void PicoAshaComm::onSerialReadyRead()
     }
 }
 
-void PicoAshaComm::onHciLogPathChanged(const QString &path)
-{
-    m_hciLoggingPath = path;
-}
-
-void PicoAshaComm::onHciLogActionBtnClicked()
+void PicoAshaComm::onDiagnosticSessionStartRequested(const DiagnosticSettings &settings)
 {
     using namespace asha::comm;
-    if (m_hciLoggingEnabled) {
-        if (m_hciLogFile.isOpen()) {
-            m_hciLogFile.close();
+
+    if (m_diagnosticRecordingActive) {
+        return;
+    }
+
+    if (settings.problemDescription.trimmed().isEmpty()) {
+        failDiagnosticStart("Enter a problem description before starting.");
+        return;
+    }
+
+    const QString requestedOutputPath = settings.outputDirectory.trimmed();
+    if (requestedOutputPath.isEmpty()) {
+        failDiagnosticStart("Choose where to save the diagnostic files.");
+        return;
+    }
+
+    const QString outputPath = QDir::cleanPath(requestedOutputPath);
+    const bool needsPicoAsha =
+        settings.restartPicoAsha || settings.deleteBonds || settings.rawHciTraffic;
+    if (needsPicoAsha && !m_serialConnected) {
+        failDiagnosticStart(
+            "Pico-ASHA is not connected. Connect it before starting with the selected options.");
+        return;
+    }
+
+    if (!prepareDiagnosticOutput(outputPath)) {
+        failDiagnosticStart(errMsg());
+        return;
+    }
+
+    const QString hciPath = QDir(outputPath).filePath("hci.log");
+    if (settings.rawHciTraffic && QFileInfo::exists(hciPath)) {
+        failDiagnosticStart(
+            QString("The raw HCI file already exists:\n%1\n\nChoose another output folder.")
+                .arg(hciPath));
+        return;
+    }
+
+    m_diagnosticSettings = settings;
+    m_diagnosticSettings.problemDescription = settings.problemDescription.trimmed();
+    m_diagnosticSettings.outputDirectory = outputPath;
+    m_ui->clearLog();
+
+    if (settings.deleteBonds) {
+        const bool commandSent = sendCommandPacket(
+            {
+                .cmd = Command::DeletePair,
+                .cmd_status = CmdStatus::CmdOk,
+                .data = {}
+            });
+        if (!commandSent) {
+            failDiagnosticStart("Could not request deletion of saved bonds.");
+            return;
         }
-        m_hciLoggingEnabled = false;
-        sendCommandPacket(
+    }
+
+    if (settings.rawHciTraffic) {
+        if (!startHciLogging(hciPath)) {
+            failDiagnosticStart(
+                QString("Could not start raw HCI recording:\n%1").arg(errMsg()));
+            return;
+        }
+    } else if (settings.restartPicoAsha) {
+        const bool commandSent = sendCommandPacket(
+            {
+                .cmd = Command::Restart,
+                .cmd_status = CmdStatus::CmdOk,
+                .data = {}
+            });
+        if (!commandSent) {
+            failDiagnosticStart("Could not restart Pico-ASHA.");
+            return;
+        }
+        m_ui->onSerialConnected(false);
+    }
+
+    m_diagnosticRecordingActive = true;
+    m_ui->setDiagnosticSessionActive(true);
+}
+
+void PicoAshaComm::onDiagnosticSessionFinishRequested()
+{
+    if (!m_diagnosticRecordingActive) {
+        return;
+    }
+
+    if (m_hciLoggingEnabled && !m_serialConnected) {
+        const QString message =
+            "Pico-ASHA is not connected. Reconnect it before finishing the diagnostic session.";
+        setErrMsg(message);
+        QMessageBox::critical(m_ui, "Diagnostic Session", message);
+        return;
+    }
+
+    if (m_hciLoggingEnabled) {
+        if (!stopHciLogging()) {
+            const QString message =
+                "Could not stop raw HCI recording. Check the Pico-ASHA connection and try again.";
+            setErrMsg(message);
+            QMessageBox::critical(m_ui, "Diagnostic Session", message);
+            return;
+        }
+    }
+
+    m_diagnosticRecordingActive = false;
+    m_ui->setDiagnosticSessionActive(false);
+}
+
+bool PicoAshaComm::startHciLogging(const QString &path)
+{
+    using namespace asha::comm;
+
+    if (path.isEmpty()) {
+        setErrMsg("HCI log path is empty");
+        return false;
+    }
+
+    if (m_hciLogFile.isOpen()) {
+        m_hciLogFile.close();
+    }
+
+    m_hciLogFile.setFileName(path);
+    if (!m_hciLogFile.open(QIODevice::WriteOnly | QIODevice::NewOnly)) {
+        setErrMsg(m_hciLogFile.errorString());
+        return false;
+    }
+
+    struct {
+        char id_pattern[8] = "btsnoop";
+        uint32_t version = 1;
+        uint32_t data_type = 1002; // H4
+    } btsnoop_file_header;
+
+    btsnoop_file_header.version = qToBigEndian(btsnoop_file_header.version);
+    btsnoop_file_header.data_type = qToBigEndian(btsnoop_file_header.data_type);
+
+    if (m_hciLogFile.write(
+            reinterpret_cast<const char*>(&btsnoop_file_header),
+            sizeof(btsnoop_file_header)) != sizeof(btsnoop_file_header)) {
+        setErrMsg(m_hciLogFile.errorString());
+        m_hciLogFile.close();
+        m_hciLogFile.remove();
+        return false;
+    }
+
+    const bool commandSent = sendCommandPacket(
+        {
+            .cmd = Command::HCIDump,
+            .cmd_status = CmdStatus::CmdOk,
+            .data = {.enable_hci = true}
+        });
+    if (!commandSent) {
+        m_hciLogFile.close();
+        m_hciLogFile.remove();
+        return false;
+    }
+
+    m_hciLoggingEnabled = true;
+    m_serialConnected = false;
+    m_ui->onSerialConnected(false);
+    return true;
+}
+
+bool PicoAshaComm::stopHciLogging()
+{
+    using namespace asha::comm;
+
+    if (m_hciLoggingEnabled) {
+        const bool commandSent = sendCommandPacket(
             {
                 .cmd = Command::HCIDump,
                 .cmd_status = CmdStatus::CmdOk,
                 .data = {.enable_hci = false}
-            }
-        );
-    } else {
-        if (m_hciLoggingPath.isEmpty()) {
-            setErrMsg("Log path not set");
-            return;
-        }
-        if (m_hciLogFile.isOpen()) {
-            m_hciLogFile.close();
-        }
-        m_hciLogFile.setFileName(m_hciLoggingPath);
-        if (!m_hciLogFile.open(QIODevice::WriteOnly)) {
-            setErrMsg(m_hciLogFile.errorString());
-            return;
-        }
-
-        struct {
-            char id_pattern[8] = "btsnoop";
-            uint32_t version = 1;
-            uint32_t data_type = 1002; // H4
-        } btsnoop_file_header;
-
-        btsnoop_file_header.version = qToBigEndian(btsnoop_file_header.version);
-        btsnoop_file_header.data_type = qToBigEndian(btsnoop_file_header.data_type);
-
-        if (m_hciLogFile.write((const char*)&btsnoop_file_header, sizeof(btsnoop_file_header)) < 0) {
-            setErrMsg(m_hciLogFile.errorString());
-            return;
-        }
-        bool res = sendCommandPacket(
-            {
-                .cmd = Command::HCIDump,
-                .cmd_status = CmdStatus::CmdOk,
-                .data = {.enable_hci = true}
-            }
-        );
-        if (res) {
-            m_hciLoggingEnabled = true;
+            });
+        if (!commandSent) {
+            return false;
         }
     }
+
+    if (m_hciLogFile.isOpen()) {
+        m_hciLogFile.close();
+    }
+    m_hciLoggingEnabled = false;
+    return true;
+}
+
+bool PicoAshaComm::prepareDiagnosticOutput(const QString &path)
+{
+    const QFileInfo outputInfo(path);
+    if (outputInfo.exists() && !outputInfo.isDir()) {
+        setErrMsg(QString("The diagnostic output path is not a folder:\n%1").arg(path));
+        return false;
+    }
+
+    if (!QDir().mkpath(path)) {
+        setErrMsg(QString("Could not create the diagnostic output folder:\n%1").arg(path));
+        return false;
+    }
+
+    // Qt replaces XXXXXX with a unique suffix and removes the test file on destruction.
+    QTemporaryFile writeTest(QDir(path).filePath(".pico-asha-write-test-XXXXXX"));
+    writeTest.setAutoRemove(true);
+    if (!writeTest.open()) {
+        setErrMsg(QString("The diagnostic output folder is not writable:\n%1").arg(path));
+        return false;
+    }
+
+    return true;
+}
+
+void PicoAshaComm::failDiagnosticStart(const QString &message)
+{
+    setErrMsg(message);
+    emit diagnosticSessionStartFailed(message);
 }
 
 void PicoAshaComm::onCmdRestartBtnClicked()
@@ -692,20 +869,20 @@ bool PicoAshaComm::sendCommandPacket(asha::comm::CmdPacket const& cmd_pkt)
     size_t enc_len = 0;
     cobs_encode(&pkt, sizeof(pkt), enc + 1, sizeof(enc) - 1, &enc_len);
     ++enc_len;
-    if (m_serialConnected) {
-        if (m_serial.write((const char*)enc, enc_len) < 0) {
-            setErrMsg(m_serial.errorString());
-            return false;
-        }
+    if (!m_serialConnected) {
+        setErrMsg("Pico-ASHA is not connected");
+        return false;
+    }
+    if (m_serial.write((const char*)enc, enc_len) < 0) {
+        setErrMsg(m_serial.errorString());
+        return false;
     }
     return true;
 }
 
 void PicoAshaComm::writeHciPacket(const char *data, size_t len)
 {
-    if (!m_hciLoggingEnabled) {
-        m_hciLoggingEnabled = true;
-    } else if (m_hciLoggingEnabled && m_hciLogFile.isOpen()) {
+    if (m_hciLoggingEnabled && m_hciLogFile.isOpen()) {
         m_hciLogFile.write(data, len);
     }
 }

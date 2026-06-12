@@ -171,16 +171,9 @@ PicoAshaMainWindow::PicoAshaMainWindow(QWidget *parent)
 
     QObject::connect(m_diagnosticActionBtn, &QPushButton::clicked, this, [this]() {
         if (m_diagnosticSessionActive) {
-            setDiagnosticSessionActive(false);
             emit diagnosticSessionFinishRequested();
         } else {
-            DiagnosticSessionDialog dialog(this);
-            if (dialog.exec() != QDialog::Accepted) {
-                return;
-            }
-
-            setDiagnosticSessionActive(true);
-            emit diagnosticSessionStartRequested(dialog.settings());
+            openDiagnosticSessionDialog();
         }
     });
 
@@ -215,6 +208,11 @@ QFrame *PicoAshaMainWindow::remoteFrame() const
 void PicoAshaMainWindow::appendLog(const QString &logLine)
 {
     m_logWidget->appendPlainText(logLine);
+}
+
+void PicoAshaMainWindow::clearLog()
+{
+    m_logWidget->clear();
 }
 
 RemoteDevice* PicoAshaMainWindow::addRemote(uint16_t connID, const asha::comm::RemoteInfo* remote)
@@ -358,12 +356,30 @@ void PicoAshaMainWindow::setDiagnosticSessionActive(bool active)
     m_diagnosticSessionActive = active;
 
     if (active) {
+        m_pendingDiagnosticSettings = {};
         m_diagnosticActionBtn->setText("Finish Diagnostic Session");
         m_diagnosticActionBtn->setToolTip("Finish the diagnostic session and save the collected diagnostic files.");
     } else {
         m_diagnosticActionBtn->setText("Start Diagnostic Session...");
         m_diagnosticActionBtn->setToolTip("Start a guided diagnostic session.");
     }
+}
+
+void PicoAshaMainWindow::onDiagnosticSessionStartFailed(const QString &message)
+{
+    QMessageBox::critical(this, "Diagnostic Session", message);
+    openDiagnosticSessionDialog();
+}
+
+void PicoAshaMainWindow::openDiagnosticSessionDialog()
+{
+    DiagnosticSessionDialog dialog(m_pendingDiagnosticSettings, this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    m_pendingDiagnosticSettings = dialog.settings();
+    emit diagnosticSessionStartRequested(m_pendingDiagnosticSettings);
 }
 
 void PicoAshaMainWindow::onAdPacketReceived(const asha::comm::AdvertisingPacket &ad_pkt)
