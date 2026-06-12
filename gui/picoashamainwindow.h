@@ -12,6 +12,7 @@
 
 #include "remotedevice.h"
 #include "pairdialog.h"
+#include "diagnosticsettings.h"
 #include "asha_comms.hpp"
 
 class PicoAshaMainWindow : public QMainWindow
@@ -53,7 +54,7 @@ public slots:
     void onPairDialogAcceptedRejected();
 
 signals:
-    void diagnosticSessionStartRequested();
+    void diagnosticSessionStartRequested(DiagnosticSettings const& settings);
     void diagnosticSessionFinishRequested();
     void cmdRestartBtnClicked();
     void cmdConnAllowedBtnClicked(bool allowed);

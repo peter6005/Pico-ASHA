@@ -26,6 +26,9 @@ qt_add_executable(PicoASHAGui
     ../lib/nanocobs/cobs.c
     picoashamainwindow.h 
     picoashamainwindow.cpp
+    diagnosticsettings.h
+    diagnosticsessiondialog.h
+    diagnosticsessiondialog.cpp
     pairdialog.h 
     pairdialog.cpp
 )

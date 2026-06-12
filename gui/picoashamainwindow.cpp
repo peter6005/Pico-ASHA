@@ -8,6 +8,7 @@
 #include <QVariant>
 
 #include "picoashamainwindow.h"
+#include "diagnosticsessiondialog.h"
 #include "remotedevice.h"
 
 static QString widgetNameFromConnID(uint16_t connID)
@@ -173,8 +174,13 @@ PicoAshaMainWindow::PicoAshaMainWindow(QWidget *parent)
             setDiagnosticSessionActive(false);
             emit diagnosticSessionFinishRequested();
         } else {
+            DiagnosticSessionDialog dialog(this);
+            if (dialog.exec() != QDialog::Accepted) {
+                return;
+            }
+
             setDiagnosticSessionActive(true);
-            emit diagnosticSessionStartRequested();
+            emit diagnosticSessionStartRequested(dialog.settings());
         }
     });
 
